@@ -18,7 +18,7 @@ export default function DashboardPage() {
   });
 
   const [statuses, setStatuses] = useState({
-    AT1: true, AT2: true, Coupler: true, LineA: true,
+    Line220: true, AT1: true, AT2: true, Coupler: true, LineA: true,
     T1: true, T2: true, Bus1: true, Bus2: true,
     FeederCity: true, FeederReg: true, Feeder35: true, Motor6: true
   });
@@ -42,7 +42,7 @@ export default function DashboardPage() {
   ]);
 
   const nodeRefs = {
-    gen: useRef(null), at1: useRef(null), at2: useRef(null),
+    line220: useRef(null), gen: useRef(null), at1: useRef(null), at2: useRef(null),
     bus110_1: useRef(null), bus110_2: useRef(null), coupler: useRef(null),
     trans1: useRef(null), trans2: useRef(null), userA: useRef(null),
     userB: useRef(null), userE: useRef(null), userC: useRef(null), userD: useRef(null)
@@ -69,57 +69,69 @@ export default function DashboardPage() {
     const X_sys_220 = Math.pow(220, 2) / S_sc;
     const X_sys_110 = X_sys_220 * Math.pow(110 / 220, 2);
 
-    const hasVoltageBus1 = statuses.Bus1 && (statuses.AT1 || (statuses.Coupler && statuses.AT2 && statuses.Bus2));
-    const hasVoltageBus2 = statuses.Bus2 && (statuses.AT2 || (statuses.Coupler && statuses.AT1 && statuses.Bus1));
+    // 220კვ ეგხ თუ გათიშულია -> ქვესადგურს ძაბვა არ მიეწოდება (სრული ბლექაუტი)
+    const hasVoltage220 = statuses.Line220;
+    const hasVoltageBus1 = hasVoltage220 && statuses.Bus1 && (statuses.AT1 || (statuses.Coupler && statuses.AT2 && statuses.Bus2));
+    const hasVoltageBus2 = hasVoltage220 && statuses.Bus2 && (statuses.AT2 || (statuses.Coupler && statuses.AT1 && statuses.Bus1));
 
     const lineACurrentVal = (statuses.LineA && hasVoltageBus1) 
       ? Math.round(300 * (systemSettings.lineLength / 50)) : 0;
+
     const t1_10_city = (statuses.T1 && hasVoltageBus1 && statuses.FeederCity) 
       ? Math.round(250 * (systemSettings.t1Nominal / 63) * (8 / (systemSettings.lineLength10 || 1))) : 0;
+
     const t1_10_reg = (statuses.T1 && hasVoltageBus1 && statuses.FeederReg) 
       ? Math.round(150 * (systemSettings.t1Nominal / 63) * (12 / (systemSettings.lineLengthRegional10 || 1))) : 0;
+
     const t2_35_factory = (statuses.T2 && hasVoltageBus2 && statuses.Feeder35) 
       ? Math.round(200 * (systemSettings.t2Nominal / 40) * (15 / (systemSettings.lineLength35 || 1))) : 0;
+
     const t2_6_motor = (statuses.T2 && hasVoltageBus2 && statuses.Motor6) 
       ? Math.round(160 * (systemSettings.t2Nominal / 40)) : 0;
 
     const t1_LV_TotalCurrent = t1_10_city + t1_10_reg; 
     const t1_110_Current = (statuses.T1 && hasVoltageBus1) 
       ? Math.round(t1_LV_TotalCurrent * (10 / 110)) : 0;
+
     const t2_110_Current = (statuses.T2 && hasVoltageBus2) 
       ? Math.round(t2_35_factory * (35 / 110) + t2_6_motor * (6 / 110)) : 0;
 
     const loadBus1 = lineACurrentVal + t1_110_Current;
     const loadBus2 = t2_110_Current;
+
     let at1_110_Current = 0;
     let at2_110_Current = 0;
 
-    if (statuses.AT1 && statuses.AT2 && statuses.Bus1 && statuses.Bus2) {
-      if (statuses.Coupler) {
-        const totalLoad = loadBus1 + loadBus2;
-        const totalAT = systemSettings.at1Nominal + systemSettings.at2Nominal;
-        at1_110_Current = Math.round(totalLoad * (systemSettings.at1Nominal / totalAT));
-        at2_110_Current = Math.round(totalLoad * (systemSettings.at2Nominal / totalAT));
-      } else {
-        at1_110_Current = loadBus1;
-        at2_110_Current = loadBus2;
+    if (hasVoltage220) {
+      if (statuses.AT1 && statuses.AT2 && statuses.Bus1 && statuses.Bus2) {
+        if (statuses.Coupler) {
+          const totalLoad = loadBus1 + loadBus2;
+          const totalAT = systemSettings.at1Nominal + systemSettings.at2Nominal;
+          at1_110_Current = Math.round(totalLoad * (systemSettings.at1Nominal / totalAT));
+          at2_110_Current = Math.round(totalLoad * (systemSettings.at2Nominal / totalAT));
+        } else {
+          at1_110_Current = loadBus1;
+          at2_110_Current = loadBus2;
+        }
+      } else if (statuses.AT1 && statuses.Bus1) {
+        at1_110_Current = loadBus1 + (statuses.Coupler && statuses.Bus2 ? loadBus2 : 0);
+        at2_110_Current = 0;
+      } else if (statuses.AT2 && statuses.Bus2) {
+        at1_110_Current = 0;
+        at2_110_Current = loadBus2 + (statuses.Coupler && statuses.Bus1 ? loadBus1 : 0);
       }
-    } else if (statuses.AT1 && statuses.Bus1) {
-      at1_110_Current = loadBus1 + (statuses.Coupler && statuses.Bus2 ? loadBus2 : 0);
-      at2_110_Current = 0;
-    } else if (statuses.AT2 && statuses.Bus2) {
-      at1_110_Current = 0;
-      at2_110_Current = loadBus2 + (statuses.Coupler && statuses.Bus1 ? loadBus1 : 0);
     }
 
     const at1_220_Current = Math.round(at1_110_Current * (110 / 220));
     const at2_220_Current = Math.round(at2_110_Current * (110 / 220));
+    const line220_Current = statuses.Line220 ? (at1_220_Current + at2_220_Current) : 0;
 
     return {
-      X_sys_110, hasVoltageBus1, hasVoltageBus2,
+      X_sys_110, hasVoltage220, hasVoltageBus1, hasVoltageBus2,
       lineACurrentVal, t1_10_city, t1_10_reg, t2_35_factory, t2_6_motor,
       t1_LV_TotalCurrent, t1_110_Current, t2_110_Current,
-      at1_110_Current, at2_110_Current, at1_220_Current, at2_220_Current
+      at1_110_Current, at2_110_Current, at1_220_Current, at2_220_Current,
+      line220_Current
     };
   }, [systemSettings, statuses]);
 
@@ -133,8 +145,17 @@ export default function DashboardPage() {
     let nodeKey = null;
     let faultData = {};
     const ik_110 = Math.round((110000 / Math.sqrt(3)) / X_sys_110); 
+    const ik_220 = Math.round(ik_110 * (110 / 220));
 
     switch(faultType) {
+      case 'line_220_fault':
+        nodeKey = 'line220';
+        faultData = {
+          relay: "SEL-311L (21/87L)", fCurrent: `${ik_220 * 2} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.line220_Current} A`,
+          time: "0.02 წმ", dist: "12.4 კმ", zeroSeq: "340 A", type: "21/87L 220კვ ეგხ-ს ავარია", mode: "🚨 სრული ბლექაუტი (BLACKOUT)",
+          logMsg: "🚨 [87L] 220კვ მკვებავი ეგხ ავარიულად გაითიშა! ქვესადგურს კვება შეუნყდა (BLACKOUT).", statusUpdate: { Line220: false }
+        };
+        break;
       case 'at1_diff':
         nodeKey = 'at1';
         faultData = {
@@ -246,7 +267,7 @@ export default function DashboardPage() {
     }
 
     const nextStatuses = { ...statuses, ...faultData.statusUpdate };
-    const isBlackout = (!nextStatuses.AT1 && !nextStatuses.AT2) || (!nextStatuses.Bus1 && !nextStatuses.Bus2);
+    const isBlackout = !nextStatuses.Line220 || (!nextStatuses.AT1 && !nextStatuses.AT2) || (!nextStatuses.Bus1 && !nextStatuses.Bus2);
 
     setTelemetry({
       currentVal: faultData.fCurrent,
@@ -267,7 +288,7 @@ export default function DashboardPage() {
     addLog(faultData.logMsg, faultType === 'bus_coupler_fault' ? 'warn' : 'danger');
 
     if (isBlackout) {
-      addLog("❌ [BLACKOUT] ქვესადგურს კვება სრულად შეუნყდა! 110კვ, 35კვ, 10კვ და 6კვ ხაზები ძაბვის გარეშეა.", 'danger');
+      addLog("❌ [BLACKOUT] ქვესადგურს კვება სრულად შეუნყდა! 220კვ, 110კვ, 35კვ, 10კვ და 6კვ ხაზები ძაბვის გარეშეა.", 'danger');
     }
 
     setTimeout(() => {
@@ -278,7 +299,7 @@ export default function DashboardPage() {
 
   const resetSystem = () => {
     setStatuses({
-      AT1: true, AT2: true, Coupler: true, LineA: true, T1: true, T2: true,
+      Line220: true, AT1: true, AT2: true, Coupler: true, LineA: true, T1: true, T2: true,
       Bus1: true, Bus2: true, FeederCity: true, FeederReg: true, Feeder35: true, Motor6: true
     });
     setTelemetry({
@@ -336,7 +357,6 @@ export default function DashboardPage() {
           
           <EventLog logs={logs} clearLogs={clearLogs} />
         </div>
-
       </div>
     </div>
   );

@@ -5,6 +5,7 @@ export default function FaultButtons({ triggerFault }) {
     <>
       <h3 className="mt-[10px] text-[#89b4fa] border-b border-[#313244] pb-[4px] text-[12px] font-bold">💥 ავარიული რეჟიმების იმიტაცია</h3>
       <div className="grid grid-cols-2 md:grid-cols-3 gap-[5px] mt-[6px]">
+        <button className="bg-[#1e1e2e] border border-[#f38ba8] text-white p-[5px] rounded text-left text-[9px] font-bold cursor-pointer hover:bg-[#f38ba8] hover:text-black transition-colors" onClick={() => triggerFault('line_220_fault')}>⚡ 220კვ მკვებავი ეგხ (21/87L)</button>
         <button className="bg-[#1e1e2e] border border-[#f38ba8] text-white p-[5px] rounded text-left text-[9px] font-bold cursor-pointer hover:bg-[#f38ba8] hover:text-black transition-colors" onClick={() => triggerFault('at1_diff')}>🌀 AT-1 დიფერენციალური (87AT)</button>
         <button className="bg-[#1e1e2e] border border-[#f38ba8] text-white p-[5px] rounded text-left text-[9px] font-bold cursor-pointer hover:bg-[#f38ba8] hover:text-black transition-colors" onClick={() => triggerFault('at2_diff')}>🌀 AT-2 დიფერენციალური (87AT)</button>
         <button className="bg-[#1e1e2e] border border-[#f38ba8] text-white p-[5px] rounded text-left text-[9px] font-bold cursor-pointer hover:bg-[#f38ba8] hover:text-black transition-colors" onClick={() => triggerFault('bus1_fault')}>⚡ 110კვ I სექციის მ.შ. (87B)</button>
