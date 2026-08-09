@@ -36,7 +36,7 @@ export default function DashboardPage() {
   const [logs, setLogs] = useState([
     { 
       time: new Date().toLocaleTimeString(), 
-      message: "[SCADA] სისტემა ნორმალურ რეჟიმშია. ექვივალენტური გენერაცია: 2000 მგვტ.", 
+      message: "[SCADA] სისტემა ნორმალურ რეჟიმშია. SEL-311L 79 (AR) მზადყოფნაშია.", 
       type: "success" 
     }
   ]);
@@ -69,7 +69,6 @@ export default function DashboardPage() {
     const X_sys_220 = Math.pow(220, 2) / S_sc;
     const X_sys_110 = X_sys_220 * Math.pow(110 / 220, 2);
 
-    // 220კვ ეგხ თუ გათიშულია -> ქვესადგურს ძაბვა არ მიეწოდება (სრული ბლექაუტი)
     const hasVoltage220 = statuses.Line220;
     const hasVoltageBus1 = hasVoltage220 && statuses.Bus1 && (statuses.AT1 || (statuses.Coupler && statuses.AT2 && statuses.Bus2));
     const hasVoltageBus2 = hasVoltage220 && statuses.Bus2 && (statuses.AT2 || (statuses.Coupler && statuses.AT1 && statuses.Bus1));
@@ -141,6 +140,41 @@ export default function DashboardPage() {
     addLog(`⚙️ გადაანგარიშება: X_sys(110kV) = ${X_sys_110.toFixed(2)} Ohm (2000MW გენერაციით).`, 'success');
   };
 
+  // აგჩ-ს დინამიური ფუნქციონალი (AR State Machine)
+  const runARSequence = (targetKey, isSuccessful, modeLabel) => {
+    addLog(`⏳ [SEL 79 AR] აგჩ-ს უპაუზო ციკლი დაწყებულია (${modeLabel}). პაუზის ათვლა: 1.5 წმ...`, 'warn');
+    setTelemetry(prev => ({
+      ...prev,
+      modeVal: `🔄 აგჩ პაუზა (1.5წმ) - ${modeLabel}`,
+      modeColor: "#f9e2af"
+    }));
+
+    setTimeout(() => {
+      // ამომრთველის ჩართვის მცდელობა
+      setStatuses(prev => ({ ...prev, [targetKey]: true }));
+
+      if (isSuccessful) {
+        addLog(`✅ [SEL 79 AR] აგჩ წარმატებით დასრულდა! ხაზი (${targetKey}) აღდგენილია.`, 'success');
+        setTelemetry(prev => ({
+          ...prev,
+          modeVal: "ნორმალური (აგჩ-ს შემდეგ)",
+          modeColor: "#a6e3a1"
+        }));
+      } else {
+        // უშედეგო აგჩ (მდგრადი ავარიისას)
+        setTimeout(() => {
+          setStatuses(prev => ({ ...prev, [targetKey]: false }));
+          addLog(`❌ [SEL 79 AR] აგჩ უშედეგოა (მდგრადი მოკლე შერთვა)! რელე გადავიდა LOCKOUT რეჟიმში.`, 'danger');
+          setTelemetry(prev => ({
+            ...prev,
+            modeVal: "🚨 LOCKOUT (აგჩ ბლოკირება)",
+            modeColor: "#f38ba8"
+          }));
+        }, 300);
+      }
+    }, 1500);
+  };
+
   const triggerFault = (faultType) => {
     let nodeKey = null;
     let faultData = {};
@@ -148,54 +182,72 @@ export default function DashboardPage() {
     const ik_220 = Math.round(ik_110 * (110 / 220));
 
     switch(faultType) {
-      case 'line_220_fault':
+      case 'line_220_1ar_success':
         nodeKey = 'line220';
         faultData = {
-          relay: "SEL-311L (21/87L)", fCurrent: `${ik_220 * 2} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.line220_Current} A`,
-          time: "0.02 წმ", dist: "12.4 კმ", zeroSeq: "340 A", type: "21/87L 220კვ ეგხ-ს ავარია", mode: "🚨 სრული ბლექაუტი (BLACKOUT)",
-          logMsg: "🚨 [87L] 220კვ მკვებავი ეგხ ავარიულად გაითიშა! ქვესადგურს კვება შეუნყდა (BLACKOUT).", statusUpdate: { Line220: false }
+          relay: "SEL-311L (21/87L/79)", fCurrent: `${ik_220 * 1.8} A`, fVoltage: "120.0 კვ", preCurrent: `${calcData.line220_Current} A`,
+          time: "0.02 წმ", dist: "14.2 კმ", zeroSeq: "280 A", type: "1-ფაზა მ.შ. (A-G)", mode: "⚡ 1-ფაზა აგჩ",
+          logMsg: "💥 [SEL-311L] 220კვ ეგხ-ზე გარდამავალი ერთფაზა მოკლე შერთვა (A-G). ამოქმედდა აგჩ (79).", statusUpdate: { Line220: false },
+          arConfig: { targetKey: 'Line220', success: true, label: '1-ფაზა აგჩ' }
         };
         break;
+
+      case 'line_220_3ar_failed':
+        nodeKey = 'line220';
+        faultData = {
+          relay: "SEL-311L (21/87L/79)", fCurrent: `${ik_220 * 2.2} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.line220_Current} A`,
+          time: "0.025 წმ", dist: "8.1 კმ", zeroSeq: "0 A", type: "3-ფაზა მდგრადი მ.შ.", mode: "🚨 3-ფაზა აგჩ (უშედეგო)",
+          logMsg: "💥 [SEL-311L] 220კვ ეგხ-ზე მდგრადი სამფაზა მოკლე შერთვა! გაითიშა 3-ფაზა.", statusUpdate: { Line220: false },
+          arConfig: { targetKey: 'Line220', success: false, label: '3-ფაზა აგჩ' }
+        };
+        break;
+
+      case 'line_a_ar_success':
+        nodeKey = 'userA';
+        faultData = {
+          relay: "SEL-311L (21/79)", fCurrent: `${Math.round(ik_110 * 0.7)} A`, fVoltage: "32.0 კვ", preCurrent: `${calcData.lineACurrentVal} A`,
+          time: "0.025 წმ", dist: `${(systemSettings.lineLength * 0.35).toFixed(1)} კმ`, zeroSeq: "120 A", type: "21 დისტანციური + 79 აგჩ", mode: "🔄 110კვ აგჩ ციკლი",
+          logMsg: "💥 [SEL-311L] 110კვ ეგხ-ზე დროებითი ავარია. ამოქმედდა აგჩ.", statusUpdate: { LineA: false },
+          arConfig: { targetKey: 'LineA', success: true, label: '110კვ ეგხ აგჩ' }
+        };
+        break;
+
       case 'at1_diff':
         nodeKey = 'at1';
         faultData = {
           relay: "SEL-487E (87AT)", fCurrent: `${Math.round(ik_110 * 1.1)} A`, fVoltage: "18.5 კვ", preCurrent: `${calcData.at1_110_Current} A`,
-          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87AT დიფერენციალური", mode: "AT-1 ავარია",
-          logMsg: "🚨 [87AT] AT-1 შიდა მოკლე შერთვა! AT-1 გათიშულია.", statusUpdate: { AT1: false }
+          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87AT დიფერენციალური", mode: "🚫 AT-1 (79 AR BLOCKED)",
+          logMsg: "🚨 [87AT] AT-1 დიფერენციალური დაცვა! აგჩ ბლოკირებულია (79 BLOCKED).", statusUpdate: { AT1: false }
         };
         break;
+
       case 'at2_diff':
         nodeKey = 'at2';
         faultData = {
           relay: "SEL-487E (87AT)", fCurrent: `${Math.round(ik_110 * 1.08)} A`, fVoltage: "19.1 კვ", preCurrent: `${calcData.at2_110_Current} A`,
-          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87AT დიფერენციალური", mode: "AT-2 ავარია",
-          logMsg: "🚨 [87AT] AT-2 შიდა მოკლე შერთვა! AT-2 გათიშულია.", statusUpdate: { AT2: false }
+          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87AT დიფერენციალური", mode: "🚫 AT-2 (79 AR BLOCKED)",
+          logMsg: "🚨 [87AT] AT-2 დიფერენციალური დაცვა! აგჩ ბლოკირებულია (79 BLOCKED).", statusUpdate: { AT2: false }
         };
         break;
+
       case 'bus1_fault':
         nodeKey = 'bus110_1';
         faultData = {
           relay: "SEL-487B (87B)", fCurrent: `${ik_110} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.at1_110_Current} A`,
-          time: "0.015 წმ", dist: "-", zeroSeq: "0 A", type: "87B შინების დიფერენციალური", mode: "110კვ I სექციის მ.შ.",
-          logMsg: "🚨 [87B] 110კვ I სექციის მოკლე შერთვა! Q-110 და AT-1 გაითიშა.", statusUpdate: { Bus1: false, Coupler: false, AT1: false }
+          time: "0.015 წმ", dist: "-", zeroSeq: "0 A", type: "87B შინების დიფერენციალური", mode: "🚫 I სექცია (79 BLOCKED)",
+          logMsg: "🚨 [87B] 110კვ I სექციის დიფერენციალური დაცვა! აგჩ ბლოკირებულია.", statusUpdate: { Bus1: false, Coupler: false, AT1: false }
         };
         break;
+
       case 'bus2_fault':
         nodeKey = 'bus110_2';
         faultData = {
           relay: "SEL-487B (87B)", fCurrent: `${ik_110} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.at2_110_Current} A`,
-          time: "0.015 წმ", dist: "-", zeroSeq: "0 A", type: "87B შინების დიფერენციალური", mode: "110კვ II სექციის მ.შ.",
-          logMsg: "🚨 [87B] 110კვ II სექციის მოკლე შერთვა! Q-110 და AT-2 გაითიშა.", statusUpdate: { Bus2: false, Coupler: false, AT2: false }
+          time: "0.015 წმ", dist: "-", zeroSeq: "0 A", type: "87B შინების დიფერენციალური", mode: "🚫 II სექცია (79 BLOCKED)",
+          logMsg: "🚨 [87B] 110კვ II სექციის დიფერენციალური დაცვა! აგჩ ბლოკირებულია.", statusUpdate: { Bus2: false, Coupler: false, AT2: false }
         };
         break;
-      case 'line_a_fault':
-        nodeKey = 'userA';
-        faultData = {
-          relay: "SEL-311L (21/87L)", fCurrent: `${Math.round(ik_110 * 0.7)} A`, fVoltage: "32.0 კვ", preCurrent: `${calcData.lineACurrentVal} A`,
-          time: "0.025 წმ", dist: `${(systemSettings.lineLength * 0.35).toFixed(1)} კმ`, zeroSeq: "120 A", type: "21 დისტანციური დაცვა", mode: "110კვ ეგხ ავარია",
-          logMsg: "🚨 [21] 110კვ ეგხ მაგისტრალის მოკლე შერთვა! ხაზი გათიშულია.", statusUpdate: { LineA: false }
-        };
-        break;
+
       case 't1_fault':
         nodeKey = 'trans1';
         faultData = {
@@ -204,6 +256,7 @@ export default function DashboardPage() {
           logMsg: "🚨 [87T] ტრანსფორმატორ T-1-ის შიდა ავარია! T-1 გაითიშა.", statusUpdate: { T1: false }
         };
         break;
+
       case 't2_fault':
         nodeKey = 'trans2';
         faultData = {
@@ -212,6 +265,7 @@ export default function DashboardPage() {
           logMsg: "🚨 [87T] ტრანსფორმატორ T-2-ის შიდა ავარია! T-2 გაითიშა.", statusUpdate: { T2: false }
         };
         break;
+
       case 'line_35_fault':
         nodeKey = 'userC';
         faultData = {
@@ -220,6 +274,7 @@ export default function DashboardPage() {
           logMsg: "🚨 [21] 35კვ ქარხნის ხაზის ავარია! ხაზი გათიშულია.", statusUpdate: { Feeder35: false }
         };
         break;
+
       case 'feeder_city_fault':
         nodeKey = 'userB';
         faultData = {
@@ -228,6 +283,7 @@ export default function DashboardPage() {
           logMsg: "🚨 [50/51] 10კვ საქალაქო ფიდერის ჭარბი დენი! ფიდერი გაითიშა.", statusUpdate: { FeederCity: false }
         };
         break;
+
       case 'feeder_reg_fault':
         nodeKey = 'userE';
         faultData = {
@@ -236,6 +292,7 @@ export default function DashboardPage() {
           logMsg: "🚨 [67N] 10კვ რეგიონული ფიდერის მიწაზე შერთვა! ფიდერი გაითიშა.", statusUpdate: { FeederReg: false }
         };
         break;
+
       case 'motor_fault':
         nodeKey = 'userD';
         faultData = {
@@ -244,6 +301,7 @@ export default function DashboardPage() {
           logMsg: "🚨 [701] 6კვ ასინქრონული ძრავას გადატვირთვა! ძრავა გაჩერდა.", statusUpdate: { Motor6: false }
         };
         break;
+
       case 'bus_coupler_fault':
         nodeKey = 'coupler';
         faultData = {
@@ -252,6 +310,7 @@ export default function DashboardPage() {
           logMsg: "⚠️ [FALSE TRIP] სექციური ამომრთველის Q-110 ყალბი გამორთვა!", statusUpdate: { Coupler: false }
         };
         break;
+
       default:
         return;
     }
@@ -287,13 +346,14 @@ export default function DashboardPage() {
 
     addLog(faultData.logMsg, faultType === 'bus_coupler_fault' ? 'warn' : 'danger');
 
-    if (isBlackout) {
-      addLog("❌ [BLACKOUT] ქვესადგურს კვება სრულად შეუნყდა! 220კვ, 110კვ, 35კვ, 10კვ და 6კვ ხაზები ძაბვის გარეშეა.", 'danger');
-    }
-
     setTimeout(() => {
       setSparkPos(prev => ({ ...prev, show: false }));
       setStatuses(nextStatuses);
+
+      // თუ აგჩ გათვალისწინებულია ამ ავარიაზე, ვრთავთ აგჩ-ს ციკლს
+      if (faultData.arConfig) {
+        runARSequence(faultData.arConfig.targetKey, faultData.arConfig.success, faultData.arConfig.label);
+      }
     }, 300);
   };
 
