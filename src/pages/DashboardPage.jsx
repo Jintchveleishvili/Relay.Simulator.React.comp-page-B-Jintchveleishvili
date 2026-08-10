@@ -7,14 +7,15 @@ import EventLog from '../components/EventLog';
 
 export default function DashboardPage() {
   const [systemSettings, setSystemSettings] = useState({
-    lineLength: 50,
+    lineLength220: 100,            // 220კვ ეგხ-ს სიგრძე (კმ)
+    lineLength: 50,                // 110კვ ეგხ-ს სიგრძე (კმ)
     at1Nominal: 250,
     at2Nominal: 250,
     t1Nominal: 63,
     t2Nominal: 40,
-    lineLength35: 15,
-    lineLength10: 8,
-    lineLengthRegional10: 12
+    lineLength35: 15,              // 35კვ ეგხ-ს სიგრძე (კმ)
+    lineLength10: 8,               // 10კვ საქალაქო ფიდერი (კმ)
+    lineLengthRegional10: 12       // 10კვ რეგიონული ფიდერი (კმ)
   });
 
   const [statuses, setStatuses] = useState({
@@ -36,7 +37,7 @@ export default function DashboardPage() {
   const [logs, setLogs] = useState([
     { 
       time: new Date().toLocaleTimeString(), 
-      message: "[SCADA] სისტემა ნორმალურ რეჟიმშია. SEL-311L 79 (AR) მზადყოფნაშია.", 
+      message: "[SCADA] სისტემა ნორმალურ რეჟიმშია. SEL 487E ტრანსფორმატორის დიფერენციალური დაცვა მზადყოფნაშია.", 
       type: "success" 
     }
   ]);
@@ -62,12 +63,30 @@ export default function DashboardPage() {
     setSystemSettings(prev => ({ ...prev, [name]: parseFloat(value) || 0 }));
   };
 
+  // 1. სისტემური და ხაზის წინაღობების დათვლა
   const calcResults = useMemo(() => {
-    const P_sys = 2000;
+    const P_sys = 2000; 
     const cosPhi = 0.85;
-    const S_sc = P_sys / cosPhi;
-    const X_sys_220 = Math.pow(220, 2) / S_sc;
-    const X_sys_110 = X_sys_220 * Math.pow(110 / 220, 2);
+    const S_sc = P_sys / cosPhi; 
+    
+    // ხვედრითი წინაღობები x0 (Ohm/km)
+    const x0_220 = 0.42; 
+    const x0_110 = 0.40; 
+    const x0_35 = 0.38;  
+    const x0_10 = 0.35;  
+
+    const X_sys_220 = Math.pow(220, 2) / S_sc; 
+    const X_sys_110 = X_sys_220 * Math.pow(110 / 220, 2); 
+    const X_sys_35_base = X_sys_220 * Math.pow(35 / 220, 2);   
+    const X_sys_10_base = X_sys_220 * Math.pow(10 / 220, 2);
+
+    // ტრანსფორმატორების (T-1, T-2) წინაღობა (Uk = 10.5%)
+    const uk_percent = 10.5;
+    const X_t1_10 = (uk_percent / 100) * (Math.pow(10, 2) / (systemSettings.t1Nominal || 63));
+    const X_t2_35 = (uk_percent / 100) * (Math.pow(35, 2) / (systemSettings.t2Nominal || 40));
+
+    const X_sys_10_total = X_sys_10_base + X_t1_10;
+    const X_sys_35_total = X_sys_35_base + X_t2_35;
 
     const hasVoltage220 = statuses.Line220;
     const hasVoltageBus1 = hasVoltage220 && statuses.Bus1 && (statuses.AT1 || (statuses.Coupler && statuses.AT2 && statuses.Bus2));
@@ -126,190 +145,258 @@ export default function DashboardPage() {
     const line220_Current = statuses.Line220 ? (at1_220_Current + at2_220_Current) : 0;
 
     return {
-      X_sys_110, hasVoltage220, hasVoltageBus1, hasVoltageBus2,
+      x0_220, x0_110, x0_35, x0_10,
+      X_sys_220, X_sys_110, X_sys_35_total, X_sys_10_total,
+      hasVoltage220, hasVoltageBus1, hasVoltageBus2,
       lineACurrentVal, t1_10_city, t1_10_reg, t2_35_factory, t2_6_motor,
-      t1_LV_TotalCurrent, t1_110_Current, t2_110_Current,
-      at1_110_Current, at2_110_Current, at1_220_Current, at2_220_Current,
+      t1_110_Current, t2_110_Current, at1_110_Current, at2_110_Current,
       line220_Current
     };
   }, [systemSettings, statuses]);
 
-  const { X_sys_110, ...calcData } = calcResults;
+  const calcData = calcResults;
 
   const recalculateSystem = () => {
-    addLog(`⚙️ გადაანგარიშება: X_sys(110kV) = ${X_sys_110.toFixed(2)} Ohm (2000MW გენერაციით).`, 'success');
+    addLog(`⚙️ გადაანგარიშება შესრულდა: X_sys_110 = ${calcData.X_sys_110.toFixed(2)} Ohm.`, 'success');
   };
 
-  // აგჩ-ს დინამიური ფუნქციონალი (AR State Machine)
   const runARSequence = (targetKey, isSuccessful, modeLabel) => {
-    addLog(`⏳ [SEL 79 AR] აგჩ-ს უპაუზო ციკლი დაწყებულია (${modeLabel}). პაუზის ათვლა: 1.5 წმ...`, 'warn');
-    setTelemetry(prev => ({
-      ...prev,
-      modeVal: `🔄 აგჩ პაუზა (1.5წმ) - ${modeLabel}`,
-      modeColor: "#f9e2af"
-    }));
+    addLog(`⏳ [SEL 79 AR] აგჩ-ს ციკლი დაწყებულია (${modeLabel})...`, 'warn');
+    setTelemetry(prev => ({ ...prev, modeVal: `🔄 აგჩ პაუზა - ${modeLabel}`, modeColor: "#f9e2af" }));
 
     setTimeout(() => {
-      // ამომრთველის ჩართვის მცდელობა
       setStatuses(prev => ({ ...prev, [targetKey]: true }));
-
       if (isSuccessful) {
-        addLog(`✅ [SEL 79 AR] აგჩ წარმატებით დასრულდა! ხაზი (${targetKey}) აღდგენილია.`, 'success');
-        setTelemetry(prev => ({
-          ...prev,
-          modeVal: "ნორმალური (აგჩ-ს შემდეგ)",
-          modeColor: "#a6e3a1"
-        }));
+        addLog(`✅ [SEL 79 AR] აგჩ წარმატებით დასრულდა! ხაზი აღდგენილია.`, 'success');
+        setTelemetry(prev => ({ ...prev, modeVal: "ნორმალური", modeColor: "#a6e3a1" }));
       } else {
-        // უშედეგო აგჩ (მდგრადი ავარიისას)
         setTimeout(() => {
           setStatuses(prev => ({ ...prev, [targetKey]: false }));
-          addLog(`❌ [SEL 79 AR] აგჩ უშედეგოა (მდგრადი მოკლე შერთვა)! რელე გადავიდა LOCKOUT რეჟიმში.`, 'danger');
-          setTelemetry(prev => ({
-            ...prev,
-            modeVal: "🚨 LOCKOUT (აგჩ ბლოკირება)",
-            modeColor: "#f38ba8"
-          }));
+          addLog(`❌ [SEL 79 AR] აგჩ უშედეგოა! რელე გადავიდა LOCKOUT რეჟიმში.`, 'danger');
+          setTelemetry(prev => ({ ...prev, modeVal: "🚨 LOCKOUT", modeColor: "#f38ba8" }));
         }, 300);
       }
     }, 1500);
   };
 
+  const calcLineFaultCurrent = (U_kV, X_sys_total, dist_km, x0_specific) => {
+    const X_line = dist_km * x0_specific;
+    const X_total = X_sys_total + X_line; 
+    const U_phase = (U_kV * 1000) / Math.sqrt(3); 
+    return Math.round(U_phase / X_total); 
+  };
+
+  // 2. ყველა ავარიული რეჟიმის სრული დამუშავება
   const triggerFault = (faultType) => {
     let nodeKey = null;
     let faultData = {};
-    const ik_110 = Math.round((110000 / Math.sqrt(3)) / X_sys_110); 
-    const ik_220 = Math.round(ik_110 * (110 / 220));
 
     switch(faultType) {
-      case 'line_220_1ar_success':
+      case 'line_220_1ar_success': {
         nodeKey = 'line220';
+        const d_km = Number((systemSettings.lineLength220 * 0.15).toFixed(1));
+        const Ik = calcLineFaultCurrent(220, calcData.X_sys_220, d_km, calcData.x0_220);
         faultData = {
-          relay: "SEL-311L (21/87L/79)", fCurrent: `${ik_220 * 1.8} A`, fVoltage: "120.0 კვ", preCurrent: `${calcData.line220_Current} A`,
-          time: "0.02 წმ", dist: "14.2 კმ", zeroSeq: "280 A", type: "1-ფაზა მ.შ. (A-G)", mode: "⚡ 1-ფაზა აგჩ",
-          logMsg: "💥 [SEL-311L] 220კვ ეგხ-ზე გარდამავალი ერთფაზა მოკლე შერთვა (A-G). ამოქმედდა აგჩ (79).", statusUpdate: { Line220: false },
+          relay: "SEL-311L", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "120.0 კვ", preCurrent: `${calcData.line220_Current} A`,
+          time: "0.02 წმ", dist: `${d_km} კმ`, zeroSeq: "280 A", type: "1-ფაზა მ.შ.", mode: "⚡ 1-ფაზა აგჩ",
+          logMsg: `💥 220კვ ეგხ d=${d_km}კმ-ზე მ.შ. I_k=${Ik}A. ამოქმედდა აგჩ (79).`, statusUpdate: { Line220: false },
           arConfig: { targetKey: 'Line220', success: true, label: '1-ფაზა აგჩ' }
         };
         break;
+      }
 
-      case 'line_220_3ar_failed':
+      case 'line_220_3ar_failed': {
         nodeKey = 'line220';
+        const d_km = Number((systemSettings.lineLength220 * 0.05).toFixed(1));
+        const Ik = calcLineFaultCurrent(220, calcData.X_sys_220, d_km, calcData.x0_220);
         faultData = {
-          relay: "SEL-311L (21/87L/79)", fCurrent: `${ik_220 * 2.2} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.line220_Current} A`,
-          time: "0.025 წმ", dist: "8.1 კმ", zeroSeq: "0 A", type: "3-ფაზა მდგრადი მ.შ.", mode: "🚨 3-ფაზა აგჩ (უშედეგო)",
-          logMsg: "💥 [SEL-311L] 220კვ ეგხ-ზე მდგრადი სამფაზა მოკლე შერთვა! გაითიშა 3-ფაზა.", statusUpdate: { Line220: false },
+          relay: "SEL-311L", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.line220_Current} A`,
+          time: "0.025 წმ", dist: `${d_km} კმ`, zeroSeq: "0 A", type: "3-ფაზა მდგრადი", mode: "🚨 3-ფაზა უშედეგო",
+          logMsg: `💥 220კვ ეგხ ახლო d=${d_km}კმ-ზე 3-ფაზა მ.შ. I_k=${Ik}A! გაითიშა 3-ფაზა.`, statusUpdate: { Line220: false },
           arConfig: { targetKey: 'Line220', success: false, label: '3-ფაზა აგჩ' }
         };
         break;
+      }
 
-      case 'line_a_ar_success':
+      case 'line_a_fault_ar': {
         nodeKey = 'userA';
+        const d_km = Number((systemSettings.lineLength * 0.3).toFixed(1));
+        const Ik = calcLineFaultCurrent(110, calcData.X_sys_110, d_km, calcData.x0_110);
         faultData = {
-          relay: "SEL-311L (21/79)", fCurrent: `${Math.round(ik_110 * 0.7)} A`, fVoltage: "32.0 კვ", preCurrent: `${calcData.lineACurrentVal} A`,
-          time: "0.025 წმ", dist: `${(systemSettings.lineLength * 0.35).toFixed(1)} კმ`, zeroSeq: "120 A", type: "21 დისტანციური + 79 აგჩ", mode: "🔄 110კვ აგჩ ციკლი",
-          logMsg: "💥 [SEL-311L] 110კვ ეგხ-ზე დროებითი ავარია. ამოქმედდა აგჩ.", statusUpdate: { LineA: false },
-          arConfig: { targetKey: 'LineA', success: true, label: '110კვ ეგხ აგჩ' }
+          relay: "SEL-311L", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "32.0 კვ", preCurrent: `${calcData.lineACurrentVal} A`,
+          time: "0.025 წმ", dist: `${d_km} კმ`, zeroSeq: "120 A", type: "21 + 79 აგჩ", mode: "🔄 110კვ აგჩ",
+          logMsg: `💥 110კვ მაგისტრალზე d=${d_km}კმ მ.შ. I_k=${Ik}A. ამოქმედდა აგჩ.`, statusUpdate: { LineA: false },
+          arConfig: { targetKey: 'LineA', success: true, label: '110კვ აგჩ' }
         };
         break;
+      }
 
-      case 'at1_diff':
+      case 'line_a_fault_permanent': {
+        nodeKey = 'userA';
+        const d_km = Number((systemSettings.lineLength * 0.3).toFixed(1));
+        const Ik = calcLineFaultCurrent(110, calcData.X_sys_110, d_km, calcData.x0_110);
+        faultData = {
+          relay: "SEL-311L", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.lineACurrentVal} A`,
+          time: "0.025 წმ", dist: `${d_km} კმ`, zeroSeq: "120 A", type: "21 მდგრადი", mode: "🚨 110კვ გათიშულია",
+          logMsg: `🚨 110კვ მაგისტრალზე მდგრადი მ.შ. I_k=${Ik}A. ხაზი გაითიშა.`, statusUpdate: { LineA: false }
+        };
+        break;
+      }
+
+      // AT-1: 220/110კვ გრაგნილის შერთვა 10კვ გრაგნილთან
+      case 'at1_diff': {
         nodeKey = 'at1';
         faultData = {
-          relay: "SEL-487E (87AT)", fCurrent: `${Math.round(ik_110 * 1.1)} A`, fVoltage: "18.5 კვ", preCurrent: `${calcData.at1_110_Current} A`,
-          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87AT დიფერენციალური", mode: "🚫 AT-1 (79 AR BLOCKED)",
-          logMsg: "🚨 [87AT] AT-1 დიფერენციალური დაცვა! აგჩ ბლოკირებულია (79 BLOCKED).", statusUpdate: { AT1: false }
+          relay: "SEL-487E (87AT)", 
+          fCurrent: "3,850 A", 
+          fVoltage: "78.5 კვ", // ნარჩენი ძაბვა ავარიის 0.03 წმ-ში
+          preCurrent: `${calcData.at1_110_Current} A`,
+          time: "0.03 წმ", 
+          dist: "შიდა (87AT)", 
+          zeroSeq: "180 A", 
+          type: "220/110კვ - 10კვ გრაგნილთაშორისი", 
+          mode: "🚫 AT-1 გათიშულია (87AT)",
+          logMsg: `🚨 [SEL-487E] AT-1: 220/110კვ გრაგნილის შერთვა 10კვ გრაგნილთან! I_k=3,850A, ნარჩენი U=78.5კვ. AT-1 იზოლირებულია.`, 
+          statusUpdate: { AT1: false }
         };
         break;
+      }
 
-      case 'at2_diff':
+      // AT-2: 220/110კვ გრაგნილის შერთვა კორპუსთან (მიწასთან)
+      case 'at2_diff': {
         nodeKey = 'at2';
         faultData = {
-          relay: "SEL-487E (87AT)", fCurrent: `${Math.round(ik_110 * 1.08)} A`, fVoltage: "19.1 კვ", preCurrent: `${calcData.at2_110_Current} A`,
-          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87AT დიფერენციალური", mode: "🚫 AT-2 (79 AR BLOCKED)",
-          logMsg: "🚨 [87AT] AT-2 დიფერენციალური დაცვა! აგჩ ბლოკირებულია (79 BLOCKED).", statusUpdate: { AT2: false }
+          relay: "SEL-487E (87AT)", 
+          fCurrent: "5,200 A", 
+          fVoltage: "62.0 კვ", // ნარჩენი ძაბვა ავარიის დროს
+          preCurrent: `${calcData.at2_110_Current} A`,
+          time: "0.03 წმ", 
+          dist: "შიდა (87AT)", 
+          zeroSeq: "1,450 A", 
+          type: "220/110კვ გრაგნილის შერთვა კორპუსზე", 
+          mode: "🚫 AT-2 გათიშულია (87AT)",
+          logMsg: `🚨 [SEL-487E] AT-2: 220/110კვ გრაგნილის შერთვა კორპუსთან (მიწაზე)! I_k=5,200A, ნარჩენი U=62.0კვ. AT-2 იზოლირებულია.`, 
+          statusUpdate: { AT2: false }
         };
         break;
+      }
 
-      case 'bus1_fault':
+      case 'bus1_fault': {
         nodeKey = 'bus110_1';
+        const Ik = calcLineFaultCurrent(110, calcData.X_sys_110, 0, calcData.x0_110);
         faultData = {
-          relay: "SEL-487B (87B)", fCurrent: `${ik_110} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.at1_110_Current} A`,
-          time: "0.015 წმ", dist: "-", zeroSeq: "0 A", type: "87B შინების დიფერენციალური", mode: "🚫 I სექცია (79 BLOCKED)",
-          logMsg: "🚨 [87B] 110კვ I სექციის დიფერენციალური დაცვა! აგჩ ბლოკირებულია.", statusUpdate: { Bus1: false, Coupler: false, AT1: false }
+          relay: "SEL-487B (87B)", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.at1_110_Current} A`,
+          time: "0.015 წმ", dist: "0.0 კმ (Bus)", zeroSeq: "0 A", type: "87B დიფერენციალური", mode: "🚫 I სექცია გათიშულია",
+          logMsg: `🚨 [87B] 110კვ I სექციაზე მოკლე შერთვა! I_k=${Ik}A. I სექცია და Q-110 გაითიშა.`, statusUpdate: { Bus1: false, Coupler: false, AT1: false }
         };
         break;
+      }
 
-      case 'bus2_fault':
+      case 'bus2_fault': {
         nodeKey = 'bus110_2';
+        const Ik = calcLineFaultCurrent(110, calcData.X_sys_110, 0, calcData.x0_110);
         faultData = {
-          relay: "SEL-487B (87B)", fCurrent: `${ik_110} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.at2_110_Current} A`,
-          time: "0.015 წმ", dist: "-", zeroSeq: "0 A", type: "87B შინების დიფერენციალური", mode: "🚫 II სექცია (79 BLOCKED)",
-          logMsg: "🚨 [87B] 110კვ II სექციის დიფერენციალური დაცვა! აგჩ ბლოკირებულია.", statusUpdate: { Bus2: false, Coupler: false, AT2: false }
+          relay: "SEL-487B (87B)", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "0.0 კვ", preCurrent: `${calcData.at2_110_Current} A`,
+          time: "0.015 წმ", dist: "0.0 კმ (Bus)", zeroSeq: "0 A", type: "87B დიფერენციალური", mode: "🚫 II სექცია გათიშულია",
+          logMsg: `🚨 [87B] 110კვ II სექციაზე მოკლე შერთვა! I_k=${Ik}A. II სექცია და Q-110 გაითიშა.`, statusUpdate: { Bus2: false, Coupler: false, AT2: false }
         };
         break;
+      }
 
-      case 't1_fault':
+      // T-1: 110კვ გრაგნილის შერთვა კორპუსთან
+      case 't1_fault': {
         nodeKey = 'trans1';
         faultData = {
-          relay: "SEL-487E (87T)", fCurrent: `${Math.round(ik_110 * 0.45)} A`, fVoltage: "12.0 კვ", preCurrent: `${calcData.t1_110_Current} A`,
-          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87T დიფერენციალური", mode: "T-1 ტრანსფ. ავარია",
-          logMsg: "🚨 [87T] ტრანსფორმატორ T-1-ის შიდა ავარია! T-1 გაითიშა.", statusUpdate: { T1: false }
+          relay: "SEL-487E (87T)", 
+          fCurrent: "4,150 A", 
+          fVoltage: "71.0 კვ", 
+          preCurrent: `${calcData.t1_110_Current} A`,
+          time: "0.03 წმ", 
+          dist: "შიდა (87T)", 
+          zeroSeq: "920 A", 
+          type: "110კვ გრაგნილის შერთვა კორპუსზე", 
+          mode: "🚨 T-1 გათიშულია",
+          logMsg: `🚨 [SEL-487E] T-1: 110კვ გრაგნილის შერთვა კორპუსთან! I_k=4,150A, ნარჩენი U=71.0კვ. T-1 იზოლირებულია.`, 
+          statusUpdate: { T1: false }
         };
         break;
+      }
 
-      case 't2_fault':
+      // T-2: 10კვ (დაბალი მხარის) გრაგნილის შერთვა კორპუსთან
+      case 't2_fault': {
         nodeKey = 'trans2';
         faultData = {
-          relay: "SEL-487E (87T)", fCurrent: `${Math.round(ik_110 * 0.42)} A`, fVoltage: "15.0 კვ", preCurrent: `${calcData.t2_110_Current} A`,
-          time: "0.03 წმ", dist: "-", zeroSeq: "0 A", type: "87T დიფერენციალური", mode: "T-2 ტრანსფ. ავარია",
-          logMsg: "🚨 [87T] ტრანსფორმატორ T-2-ის შიდა ავარია! T-2 გაითიშა.", statusUpdate: { T2: false }
+          relay: "SEL-487E (87T)", 
+          fCurrent: "2,400 A", 
+          fVoltage: "88.0 კვ", 
+          preCurrent: `${calcData.t2_110_Current} A`,
+          time: "0.03 წმ", 
+          dist: "შიდა (87T)", 
+          zeroSeq: "40 A", 
+          type: "10კვ გრაგნილის შერთვა კორპუსზე", 
+          mode: "🚨 T-2 გათიშულია",
+          logMsg: `🚨 [SEL-487E] T-2: 10კვ გრაგნილის შერთვა კორპუსთან! I_k=2,400A, ნარჩენი U=88.0კვ. T-2 იზოლირებულია.`, 
+          statusUpdate: { T2: false }
         };
         break;
+      }
 
-      case 'line_35_fault':
+      case 'line_35_fault': {
         nodeKey = 'userC';
+        const d_km = Number((systemSettings.lineLength35 * 0.4).toFixed(1)); 
+        const Ik = calcLineFaultCurrent(35, calcData.X_sys_35_total, d_km, calcData.x0_35);
         faultData = {
-          relay: "SEL-421 (21)", fCurrent: "3,600 A", fVoltage: "8.5 კვ", preCurrent: `${calcData.t2_35_factory} A`,
-          time: "0.02 წმ", dist: `${(systemSettings.lineLength35 * 0.4).toFixed(1)} კმ`, zeroSeq: "15 A", type: "21 დისტანციური დაცვა", mode: "35კვ ხაზის ავარია",
-          logMsg: "🚨 [21] 35კვ ქარხნის ხაზის ავარია! ხაზი გათიშულია.", statusUpdate: { Feeder35: false }
+          relay: "SEL-421 (21)", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "8.5 კვ", preCurrent: `${calcData.t2_35_factory} A`,
+          time: "0.02 წმ", dist: `${d_km} კმ`, zeroSeq: "15 A", type: "21 დისტანციური", mode: "35კვ ავარია",
+          logMsg: `🚨 35კვ ქარხნის ხაზზე d=${d_km}კმ-ზე I_k=${Ik}A! ხაზი გაითიშა.`, statusUpdate: { Feeder35: false }
         };
         break;
+      }
 
-      case 'feeder_city_fault':
+      case 'feeder_city_fault': {
         nodeKey = 'userB';
+        const d_km = Number((systemSettings.lineLength10 * 0.5).toFixed(1)); 
+        const Ik = calcLineFaultCurrent(10, calcData.X_sys_10_total, d_km, calcData.x0_10);
         faultData = {
-          relay: "SEL-351A (50/51)", fCurrent: "1,200 A", fVoltage: "2.1 კვ", preCurrent: `${calcData.t1_10_city} A`,
-          time: "0.35 წმ", dist: "-", zeroSeq: "0 A", type: "50/51 მაქსიმალური დენური", mode: "10კვ საქალაქო ავარია",
-          logMsg: "🚨 [50/51] 10კვ საქალაქო ფიდერის ჭარბი დენი! ფიდერი გაითიშა.", statusUpdate: { FeederCity: false }
+          relay: "SEL-351A (50/51)", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "2.1 კვ", preCurrent: `${calcData.t1_10_city} A`,
+          time: "0.35 წმ", dist: `${d_km} კმ`, zeroSeq: "0 A", type: "50/51 დენური", mode: "10კვ საქალაქო ავარია",
+          logMsg: `🚨 10კვ საქალაქო ფიდერზე d=${d_km}კმ-ზე I_k=${Ik}A. ფიდერი გაითიშა.`, statusUpdate: { FeederCity: false }
         };
         break;
+      }
 
-      case 'feeder_reg_fault':
+      case 'feeder_reg_fault': {
         nodeKey = 'userE';
+        // 10კვ იზოლირებულ ნეიტრალში ტევადობითი დენი (3I0) იზრდება მანძილის გაზრდით: 3I0 = d * 2.5 + 15
+        const d_km = Number((systemSettings.lineLengthRegional10 * 0.6).toFixed(1)); 
+        const capCurrent = Math.round(d_km * 2.5 + 15); 
         faultData = {
-          relay: "SEL-351S (67N)", fCurrent: "65 A", fVoltage: "9.8 კვ", preCurrent: `${calcData.t1_10_reg} A`,
-          time: "0.50 წმ", dist: "-", zeroSeq: "65 A", type: "67N მიწაზე მიმართული", mode: "10კვ რეგიონული მიწაზე",
-          logMsg: "🚨 [67N] 10კვ რეგიონული ფიდერის მიწაზე შერთვა! ფიდერი გაითიშა.", statusUpdate: { FeederReg: false }
+          relay: "SEL-351S (67N)", fCurrent: `${capCurrent} A`, fVoltage: "9.8 კვ", preCurrent: `${calcData.t1_10_reg} A`,
+          time: "0.50 წმ", dist: `${d_km} კმ`, zeroSeq: `${capCurrent} A`, type: "67N მიწაზე", mode: "10კვ რეგიონული",
+          logMsg: `🚨 10კვ რეგიონულ ფიდერზე მიწაზე შერთვა d=${d_km}კმ-ზე! ტევადობითი 3I0 = ${capCurrent}A. გაითიშა.`, statusUpdate: { FeederReg: false }
         };
         break;
+      }
 
-      case 'motor_fault':
+      case 'motor_fault': {
         nodeKey = 'userD';
         faultData = {
           relay: "SEL-701 (49/50/51)", fCurrent: "890 A", fVoltage: "3.2 კვ", preCurrent: `${calcData.t2_6_motor} A`,
-          time: "0.80 წმ", dist: "-", zeroSeq: "0 A", type: "49/51 თერმული / ჭარბი დენი", mode: "6კვ ძრავას ავარია",
-          logMsg: "🚨 [701] 6კვ ასინქრონული ძრავას გადატვირთვა! ძრავა გაჩერდა.", statusUpdate: { Motor6: false }
+          time: "0.80 წმ", dist: "-", zeroSeq: "0 A", type: "701 ძრავას დაცვა", mode: "🚨 6კვ ძრავას ავარია",
+          logMsg: "🚨 [SEL-701] 6კვ ასინქრონული ძრავას გადატვირთვა/გაჭედვა! ძრავა გაჩერდა.", statusUpdate: { Motor6: false }
         };
         break;
+      }
 
-      case 'bus_coupler_fault':
+      case 'bus_coupler_fault': {
         nodeKey = 'coupler';
         faultData = {
           relay: "SEL-451", fCurrent: "0 A", fVoltage: "-", preCurrent: "0 A",
-          time: "0.01 წმ", dist: "-", zeroSeq: "0 A", type: "ყალბი გამორთვა", mode: "Q-110 ყალბი გამორთვა",
-          logMsg: "⚠️ [FALSE TRIP] სექციური ამომრთველის Q-110 ყალბი გამორთვა!", statusUpdate: { Coupler: false }
+          time: "0.01 წმ", dist: "-", zeroSeq: "0 A", type: "ყალბი გამორთვა", mode: "⚠️ Q-110 გამორთულია",
+          logMsg: "⚠️ [FALSE TRIP] 110კვ სექციური ამომრთველი Q-110 გაითიშა!", statusUpdate: { Coupler: false }
         };
         break;
+      }
 
       default:
         return;
@@ -329,7 +416,7 @@ export default function DashboardPage() {
     const isBlackout = !nextStatuses.Line220 || (!nextStatuses.AT1 && !nextStatuses.AT2) || (!nextStatuses.Bus1 && !nextStatuses.Bus2);
 
     setTelemetry({
-      currentVal: faultData.fCurrent,
+      currentVal: faultData.fCurrent || "0 A",
       voltageVal: isBlackout ? "0.0 კვ" : faultData.fVoltage,
       preFaultCurrentVal: faultData.preCurrent,
       modeVal: isBlackout ? "🚨 სრული ბლექაუტი (BLACKOUT)" : faultData.mode,
@@ -350,7 +437,6 @@ export default function DashboardPage() {
       setSparkPos(prev => ({ ...prev, show: false }));
       setStatuses(nextStatuses);
 
-      // თუ აგჩ გათვალისწინებულია ამ ავარიაზე, ვრთავთ აგჩ-ს ციკლს
       if (faultData.arConfig) {
         runARSequence(faultData.arConfig.targetKey, faultData.arConfig.success, faultData.arConfig.label);
       }
@@ -383,7 +469,7 @@ export default function DashboardPage() {
       <ControlPanel 
         systemSettings={systemSettings} 
         handleInputChange={handleInputChange} 
-        X_sys_110={X_sys_110} 
+        X_sys_110={calcData.X_sys_110} 
         recalculateSystem={recalculateSystem} 
       />
 
