@@ -5,7 +5,7 @@ import FaultButtons from '../components/FaultButtons';
 import TelemetryPanel from '../components/TelemetryPanel';
 import EventLog from '../components/EventLog';
 
-export default function DashboardPage() {
+export default function DashboardPage({ onOpenDocs, onOpenAnalysis }) {
   const [systemSettings, setSystemSettings] = useState({
     lineLength220: 100,            // 220კვ ეგხ-ს სიგრძე (კმ)
     lineLength: 50,                // 110კვ ეგხ-ს სიგრძე (კმ)
@@ -243,13 +243,12 @@ export default function DashboardPage() {
         break;
       }
 
-      // AT-1: 220/110კვ გრაგნილის შერთვა 10კვ გრაგნილთან
       case 'at1_diff': {
         nodeKey = 'at1';
         faultData = {
           relay: "SEL-487E (87AT)", 
           fCurrent: "3,850 A", 
-          fVoltage: "78.5 კვ", // ნარჩენი ძაბვა ავარიის 0.03 წმ-ში
+          fVoltage: "78.5 კვ", 
           preCurrent: `${calcData.at1_110_Current} A`,
           time: "0.03 წმ", 
           dist: "შიდა (87AT)", 
@@ -262,13 +261,12 @@ export default function DashboardPage() {
         break;
       }
 
-      // AT-2: 220/110კვ გრაგნილის შერთვა კორპუსთან (მიწასთან)
       case 'at2_diff': {
         nodeKey = 'at2';
         faultData = {
           relay: "SEL-487E (87AT)", 
           fCurrent: "5,200 A", 
-          fVoltage: "62.0 კვ", // ნარჩენი ძაბვა ავარიის დროს
+          fVoltage: "62.0 კვ", 
           preCurrent: `${calcData.at2_110_Current} A`,
           time: "0.03 წმ", 
           dist: "შიდა (87AT)", 
@@ -303,7 +301,6 @@ export default function DashboardPage() {
         break;
       }
 
-      // T-1: 110კვ გრაგნილის შერთვა კორპუსთან
       case 't1_fault': {
         nodeKey = 'trans1';
         faultData = {
@@ -322,7 +319,6 @@ export default function DashboardPage() {
         break;
       }
 
-      // T-2: 10კვ (დაბალი მხარის) გრაგნილის შერთვა კორპუსთან
       case 't2_fault': {
         nodeKey = 'trans2';
         faultData = {
@@ -359,7 +355,7 @@ export default function DashboardPage() {
         const Ik = calcLineFaultCurrent(10, calcData.X_sys_10_total, d_km, calcData.x0_10);
         faultData = {
           relay: "SEL-351A (50/51)", fCurrent: `${Ik.toLocaleString()} A`, fVoltage: "2.1 კვ", preCurrent: `${calcData.t1_10_city} A`,
-          time: "0.35 წმ", dist: `${d_km} კმ`, zeroSeq: "0 A", type: "50/51 დენური", mode: "10კვ საქალაქო ავარია",
+          time: "0.35 წმ", dist: `${d_km} კმ`, zeroSeq: "0 A", type: "50/51 დენური მოკვეთა/მდდ", mode: "10კვ საქალაქო ავარია",
           logMsg: `🚨 10კვ საქალაქო ფიდერზე d=${d_km}კმ-ზე I_k=${Ik}A. ფიდერი გაითიშა.`, statusUpdate: { FeederCity: false }
         };
         break;
@@ -367,7 +363,6 @@ export default function DashboardPage() {
 
       case 'feeder_reg_fault': {
         nodeKey = 'userE';
-        // 10კვ იზოლირებულ ნეიტრალში ტევადობითი დენი (3I0) იზრდება მანძილის გაზრდით: 3I0 = d * 2.5 + 15
         const d_km = Number((systemSettings.lineLengthRegional10 * 0.6).toFixed(1)); 
         const capCurrent = Math.round(d_km * 2.5 + 15); 
         faultData = {
@@ -460,10 +455,28 @@ export default function DashboardPage() {
 
   return (
     <div className="w-screen min-h-screen bg-[#0f0f14] p-3 flex flex-col box-border m-0 overflow-x-hidden font-sans text-[#cdd6f4]">
-      {/* Header */}
-      <h1 className="text-[#89b4fa] text-[18px] mb-[10px] font-bold text-center flex items-center justify-center gap-2">
-        <span>⚡</span> SEL რელეების კვანძური ქვესადგურის ინტელექტუალური მოდელი
-      </h1>
+      {/* Header ორივე ნავიგაციის ღილაკით */}
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-[10px] bg-[#161622] p-2 px-4 rounded border border-[#313244] gap-2">
+        <h1 className="text-[#89b4fa] text-[16px] font-bold m-0 flex items-center gap-2">
+          <span>⚡</span> SEL რელეების კვანძური ქვესადგურის ინტელექტუალური მოდელი
+        </h1>
+
+        <div className="flex gap-2">
+          <button 
+            onClick={onOpenDocs}
+            className="bg-[#89b4fa] hover:bg-[#b4befe] text-[#11111b] font-bold text-[12px] px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 cursor-pointer shadow"
+          >
+            📖 SEL ცნობარი
+          </button>
+
+          <button 
+            onClick={onOpenAnalysis}
+            className="bg-[#f38ba8] hover:bg-[#f5e0dc] text-[#11111b] font-bold text-[12px] px-3 py-1.5 rounded transition-colors flex items-center gap-1.5 cursor-pointer shadow"
+          >
+            📉 ოსცილოგრამები (SynchroWAVE)
+          </button>
+        </div>
+      </div>
 
       {/* Control Panel Component */}
       <ControlPanel 
