@@ -1,7 +1,7 @@
 import React from 'react';
 import RelayInfoCard from '../components1/RelayInfoCard';
 
-export default function RelayDocPage({ onBack }) {
+export default function RelayDocPage({ onBackToSchema }) {
   const relaysData = [
     {
       title: "220კვ / 110კვ ეგხ-ს დისტანციური და დიფერენციალური დაცვა",
@@ -91,7 +91,7 @@ export default function RelayDocPage({ onBack }) {
         </div>
 
         <button 
-          onClick={onBack}
+          onClick={onBackToSchema}
           className="bg-[#89b4fa] hover:bg-[#b4befe] text-[#11111b] font-bold px-4 py-2 rounded text-[13px] transition-colors flex items-center gap-2 cursor-pointer shadow"
         >
           ⬅️ მთავარ სქემაზე დაბრუნება
