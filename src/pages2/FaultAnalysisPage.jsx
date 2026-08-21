@@ -316,11 +316,11 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
   const [zoomLevel, setZoomLevel] = useState(1);
   const [showPhases, setShowPhases] = useState({ A: true, B: true, C: true });
   const [showVoltagePhases, setShowVoltagePhases] = useState({ A: true, B: true, C: true });
-  
+
   const currentConfig = FAULT_CONFIGS[activeTab] || FAULT_CONFIGS.line_220_1ar_success;
 
-  const { currentWaves, voltageWaves } = useMemo(() => {
-    const pointsCount = 400;
+  const { currentWaves, voltageWaves, arMarkers } = useMemo(() => {
+    const pointsCount = 600;
     const isFailed3AR = activeTab === 'line_220_3ar_failed';
     const isSingleAR = activeTab === 'line_220_1ar_success';
     const isLineA_AR = activeTab === 'line_a_fault_ar';
@@ -333,20 +333,45 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
 
     let currentA = [], currentB = [], currentC = [];
     let voltageA = [], voltageB = [], voltageC = [];
+    let markers = [];
 
     for (let i = 0; i < pointsCount; i++) {
       const t = i / (pointsCount - 1);
-      const rad = t * Math.PI * 30;
+      const rad = t * Math.PI * 55;
 
       let ampA_I = 1.0, ampB_I = 1.0, ampC_I = 1.0;
       let ampA_U = 1.0, ampB_U = 1.0, ampC_U = 1.0;
 
-      if (isT1Fault) {
+      // 3-ფაზა აგჩ (უშედეგო - LOCKOUT) - დინამიკური ოსცილოგრამა[cite: 2]
+      if (isFailed3AR) {
+        if (t < 0.08) { // 1. Pre-fault[cite: 2]
+          ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
+          ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
+        } else if (t >= 0.08 && t < 0.18) { // 2. პირველი მოკლე შერთვა[cite: 2]
+          ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
+          ampA_U = 0.05; ampB_U = 0.05; ampC_U = 0.05;
+        } else if (t >= 0.18 && t < 0.42) { // 3. 1-ლი გათიშვა / აგჩ-ს 1-ლი პაუზა (0.80s)[cite: 2]
+          ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
+          ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
+        } else if (t >= 0.42 && t < 0.52) { // 4. 1-ლი აგჩ ჩართვა -> მყარი მოკლე შერთვა![cite: 2]
+          ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
+          ampA_U = 0.05; ampB_U = 0.05; ampC_U = 0.05;
+        } else if (t >= 0.52 && t < 0.78) { // 5. 2-რე გათიშვა / აგჩ-ს 2-რე პაუზა (1.50s)[cite: 2]
+          ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
+          ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
+        } else if (t >= 0.78 && t < 0.88) { // 6. 2-რე აგჩ ჩართვა -> ხელმეორე მყარი მ.შ.![cite: 2]
+          ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
+          ampA_U = 0.05; ampB_U = 0.05; ampC_U = 0.05;
+        } else { // 7. საბოლოო გათიშვა (LOCKOUT)[cite: 2]
+          ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
+          ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
+        }
+      } else if (isT1Fault) {
         if (t < 0.08) {
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
         } else if (t >= 0.08 && t < 0.25) {
-          ampA_I = 3.4; ampB_I = 1.8; ampC_I = 1.8; // არასიმეტრიული დენები ნულოვანი მიმდევრობით (3I0 = 920A)
+          ampA_I = 3.4; ampB_I = 1.8; ampC_I = 1.8;
           ampA_U = 0.2; ampB_U = 0.7; ampC_U = 0.7;
         } else {
           ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
@@ -356,8 +381,8 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
         if (t < 0.08) {
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.08 && t < 0.25) {
-          ampA_I = isRegFeederFault ? 1.4 : 1.9; ampB_I = 1.0; ampC_I = 1.0;
+        } else if (t >= 0.08 && t < 0.35) {
+          ampA_I = isRegFeederFault ? 1.5 : 2.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 0.05; ampB_U = 1.73; ampC_U = 1.73;
         } else {
           ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
@@ -367,7 +392,7 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
         if (t < 0.08) {
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.08 && t < 0.35) {
+        } else if (t >= 0.08 && t < 0.45) {
           ampA_I = 2.5; ampB_I = 2.5; ampC_I = 2.5;
           ampA_U = 0.8; ampB_U = 0.8; ampC_U = 0.8;
         } else {
@@ -378,18 +403,18 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
         if (t < 0.08) {
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.08 && t < 0.30) {
+        } else if (t >= 0.08 && t < 0.35) {
           ampA_I = 3.0; ampB_I = 3.0; ampC_I = 3.0;
           ampA_U = 0.1; ampB_U = 0.1; ampC_U = 0.1;
         } else {
           ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
           ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
         }
-      } else if (isFailed3AR || isLineA_Perm) {
+      } else if (isLineA_Perm) {
         if (t < 0.08) {
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.08 && t < 0.22) {
+        } else if (t >= 0.08 && t < 0.28) {
           ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
           ampA_U = 0.1; ampB_U = 0.1; ampC_U = 0.1;
         } else {
@@ -400,10 +425,10 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
         if (t < 0.08) {
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.08 && t < 0.22) {
+        } else if (t >= 0.08 && t < 0.25) {
           ampA_I = 3.5; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 0.2; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.22 && t < 0.62) {
+        } else if (t >= 0.25 && t < 0.65) {
           ampA_I = 0.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 0.0; ampB_U = 1.0; ampC_U = 1.0;
         } else {
@@ -423,27 +448,44 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
         }
       }
 
-      const x = i * 2.2 * zoomLevel;
+      const x = i * 1.5 * zoomLevel;
+
       const valA_I = Math.sin(rad) * ampA_I;
       const valB_I = Math.sin(rad - (2 * Math.PI / 3)) * ampB_I;
       const valC_I = Math.sin(rad - (4 * Math.PI / 3)) * ampC_I;
 
-      currentA.push(`${x},${100 - valA_I * 35}`);
-      currentB.push(`${x},${100 - valB_I * 35}`);
-      currentC.push(`${x},${100 - valC_I * 35}`);
+      currentA.push(`${x},${100 - valA_I * 28}`);
+      currentB.push(`${x},${100 - valB_I * 28}`);
+      currentC.push(`${x},${100 - valC_I * 28}`);
 
       const valA_U = Math.sin(rad) * ampA_U;
       const valB_U = Math.sin(rad - (2 * Math.PI / 3)) * ampB_U;
       const valC_U = Math.sin(rad - (4 * Math.PI / 3)) * ampC_U;
 
-      voltageA.push(`${x},${100 - valA_U * 35}`);
-      voltageB.push(`${x},${100 - valB_U * 35}`);
-      voltageC.push(`${x},${100 - valC_U * 35}`);
+      voltageA.push(`${x},${100 - valA_U * 28}`);
+      voltageB.push(`${x},${100 - valB_U * 28}`);
+      voltageC.push(`${x},${100 - valC_U * 28}`);
+    }
+
+    if (isFailed3AR) {
+      markers = [
+        { x: 0.08 * 600 * 1.5 * zoomLevel, text: '💥 მ.შ. (0.00s)', color: '#f38ba8' },
+        { x: 0.18 * 600 * 1.5 * zoomLevel, text: '🔴 1-ლი გათიშვა', color: '#f9e2af' },
+        { x: 0.42 * 600 * 1.5 * zoomLevel, text: '🔄 1-ლი აგჩ -> მყარი მ.შ.', color: '#f38ba8' },
+        { x: 0.52 * 600 * 1.5 * zoomLevel, text: '🔴 2-რე გათიშვა', color: '#f9e2af' },
+        { x: 0.78 * 600 * 1.5 * zoomLevel, text: '🔄 2-რე აგჩ -> მყარი მ.შ.', color: '#f38ba8' },
+        { x: 0.88 * 600 * 1.5 * zoomLevel, text: '🚫 LOCKOUT', color: '#f38ba8' }
+      ];
+    } else {
+      markers = [
+        { x: 0.08 * 600 * 1.5 * zoomLevel, text: 'Fault (0.00s)', color: '#f38ba8' }
+      ];
     }
 
     return {
       currentWaves: { pathA: currentA.join(' '), pathB: currentB.join(' '), pathC: currentC.join(' ') },
-      voltageWaves: { pathA: voltageA.join(' '), pathB: voltageB.join(' '), pathC: voltageC.join(' ') }
+      voltageWaves: { pathA: voltageA.join(' '), pathB: voltageB.join(' '), pathC: voltageC.join(' ') },
+      arMarkers: markers
     };
   }, [activeTab, zoomLevel]);
 
@@ -522,13 +564,22 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
                 </div>
               </div>
             </div>
+
             {/* SVG Current Visualizer */}
             <div className="bg-[#09090d] border border-[#222330] rounded p-2 overflow-x-auto relative min-h-[180px]">
-              <svg viewBox={`0 0 ${880 * zoomLevel} 200`} className="w-full h-[180px] pointer-events-none">
-                <line x1="0" y1="100" x2={880 * zoomLevel} y2="100" stroke="#313244" strokeWidth="1" strokeDasharray="4 4" />
-                <line x1={70 * zoomLevel} y1="0" x2={70 * zoomLevel} y2="200" stroke="#a6adc8" strokeWidth="1" strokeDasharray="2 2" />
-                <text x={5 * zoomLevel} y="15" fill="#a6adc8" fontSize="8px" fontFamily="monospace">Pre-fault</text>
-                <text x={75 * zoomLevel} y="15" fill="#f38ba8" fontSize="8px" fontFamily="monospace">Fault (0.00s)</text>
+              <svg viewBox={`0 0 ${900 * zoomLevel} 200`} className="w-full h-[180px] pointer-events-none">
+                <line x1="0" y1="100" x2={900 * zoomLevel} y2="100" stroke="#313244" strokeWidth="1" strokeDasharray="4 4" />
+                
+                {/* დროითი მარკერები აგჩ-ს ციკლებისთვის */}
+                {arMarkers.map((m, idx) => (
+                  <g key={idx}>
+                    <line x1={m.x} y1="0" x2={m.x} y2="200" stroke={m.color} strokeWidth="1" strokeDasharray="3 3" />
+                    <text x={m.x + 3} y={15 + (idx % 2) * 12} fill={m.color} fontSize="8px" fontFamily="monospace">{m.text}</text>
+                  </g>
+                ))}
+
+                <text x="5" y="15" fill="#a6adc8" fontSize="8px" fontFamily="monospace">Pre-fault</text>
+
                 {showPhases.A && <polyline fill="none" stroke="#f38ba8" strokeWidth="2" points={currentWaves.pathA} />}
                 {showPhases.B && <polyline fill="none" stroke="#a6e3a1" strokeWidth="2" points={currentWaves.pathB} />}
                 {showPhases.C && <polyline fill="none" stroke="#89b4fa" strokeWidth="2" points={currentWaves.pathC} />}
@@ -559,13 +610,18 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
                 </div>
               </div>
             </div>
+
             {/* SVG Voltage Visualizer */}
             <div className="bg-[#09090d] border border-[#222330] rounded p-2 overflow-x-auto relative min-h-[180px]">
-              <svg viewBox={`0 0 ${880 * zoomLevel} 200`} className="w-full h-[180px] pointer-events-none">
-                <line x1="0" y1="100" x2={880 * zoomLevel} y2="100" stroke="#313244" strokeWidth="1" strokeDasharray="4 4" />
-                <line x1={70 * zoomLevel} y1="0" x2={70 * zoomLevel} y2="200" stroke="#a6adc8" strokeWidth="1" strokeDasharray="2 2" />
-                <text x={5 * zoomLevel} y="15" fill="#a6adc8" fontSize="8px" fontFamily="monospace">Pre-fault</text>
-                <text x={75 * zoomLevel} y="15" fill="#f9e2af" fontSize="8px" fontFamily="monospace">Voltage Sag (0.00s)</text>
+              <svg viewBox={`0 0 ${900 * zoomLevel} 200`} className="w-full h-[180px] pointer-events-none">
+                <line x1="0" y1="100" x2={900 * zoomLevel} y2="100" stroke="#313244" strokeWidth="1" strokeDasharray="4 4" />
+                
+                {arMarkers.map((m, idx) => (
+                  <line key={idx} x1={m.x} y1="0" x2={m.x} y2="200" stroke={m.color} strokeWidth="1" strokeDasharray="3 3" />
+                ))}
+
+                <text x="5" y="15" fill="#a6adc8" fontSize="8px" fontFamily="monospace">Pre-fault</text>
+
                 {showVoltagePhases.A && <polyline fill="none" stroke="#f38ba8" strokeWidth="2" points={voltageWaves.pathA} />}
                 {showVoltagePhases.B && <polyline fill="none" stroke="#a6e3a1" strokeWidth="2" points={voltageWaves.pathB} />}
                 {showVoltagePhases.C && <polyline fill="none" stroke="#89b4fa" strokeWidth="2" points={voltageWaves.pathC} />}
