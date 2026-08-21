@@ -15,7 +15,9 @@
     "electron:build": "vite build && electron-builder"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.0.0"
+    "@tailwindcss/vite": "^4.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
