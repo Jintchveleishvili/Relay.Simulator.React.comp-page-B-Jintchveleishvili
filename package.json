@@ -2,6 +2,7 @@
   "name": "relay-simulator-project",
   "version": "0.0.0",
   "private": true,
+  "main": "main.cjs",
   "description": "This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.",
   "license": "ISC",
   "author": "",
@@ -10,24 +11,36 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:build": "vite build && electron-builder"
   },
   "dependencies": {
-    "@tailwindcss/vite": "^4.3.3",
-    "lucide-react": "^1.31.0",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "tailwindcss": "^4.3.3"
+    "@tailwindcss/vite": "^4.0.0"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.4",
-    "eslint": "^10.8.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.3",
-    "globals": "^17.7.0",
-    "vite": "^8.2.0"
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "vite": "^5.0.0"
+  },
+  "build": {
+    "appId": "com.relay.simulator",
+    "productName": "Relay Simulator",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "main.cjs"
+    ],
+    "win": {
+      "target": "nsis",
+      "sign": false,
+      "signAndEditExecutable": false,
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    }
   }
 }
