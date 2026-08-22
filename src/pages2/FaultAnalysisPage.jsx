@@ -32,18 +32,15 @@ const FAULT_CONFIGS = {
       { time: '-0.050s', event: 'ავარიამდელი ნორმალური რეჟიმი (In = 1.0)', type: 'info' },
       { time: '0.000s', event: '3-ფაზა მდგრადი მოკლე შერთვის დასაწყისი (A-B-C-G)', type: 'danger' },
       { time: '0.025s', event: '1-ლი სამფაზა გამორთვა (21 1-ლი ზონა / Q-220)', type: 'danger' },
-      { time: '0.030s', event: '1-ლი SEL 79 აგჩ-ს პაუზის ათვლა (0.80 წმ)', type: 'info' },
-      { time: '0.830s', event: '1-ლი აგჩ ჩართვა -> შეტრიალება და ხელმეორე მ.შ.', type: 'warn' },
-      { time: '0.855s', event: 'დაცვის განმეორებითი ამოქმედება -> 2-რე სამფაზა გამორთვა', type: 'danger' },
-      { time: '0.860s', event: '2-რე SEL 79 აგჩ-ს პაუზის ათვლა (1.50 წმ)', type: 'info' },
-      { time: '2.360s', event: '2-რე აგჩ ჩართვა -> ხელმეორე შეტრიალება მდგრად მ.შ.-ზე', type: 'warn' },
-      { time: '2.385s', event: 'საბოლოო სამფაზა გამორთვა (LOCKOUT)', type: 'danger' }
+      { time: '0.030s', event: 'SEL 79 აგჩ-ს პაუზის ათვლა (0.80 წმ)', type: 'info' },
+      { time: '0.830s', event: '1-ლი აგჩ ჩართვა -> შეტრიალება მყარ მ.შ.-ზე', type: 'warn' },
+      { time: '0.855s', event: 'საბოლოო სამფაზა გამორთვა და ბლოკირება (LOCKOUT)', type: 'danger' }
     ],
     parameters: {
       faultCurrent: '24.2 კა',
       faultVoltage: '0.0 კვ',
       tripTime: '0.025 წმ',
-      arPauseTime: '0.80 წმ / 1.50 წმ',
+      arPauseTime: '0.80 წმ (1-ჯერადი აგჩ)',
       arStatus: '❌ უშედეგო (LOCKOUT)',
       zeroSeqCurrent: '0 A (სიმეტრიული 3-ფაზა მ.შ.)'
     }
@@ -338,31 +335,24 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
     for (let i = 0; i < pointsCount; i++) {
       const t = i / (pointsCount - 1);
       const rad = t * Math.PI * 55;
-
       let ampA_I = 1.0, ampB_I = 1.0, ampC_I = 1.0;
       let ampA_U = 1.0, ampB_U = 1.0, ampC_U = 1.0;
 
-      // 3-ფაზა აგჩ (უშედეგო - LOCKOUT) - დინამიკური ოსცილოგრამა[cite: 2]
+      // 3-ფაზა აგჩ (ერთჯერადი შეტრიალება -> მყარი მ.შ. -> LOCKOUT)
       if (isFailed3AR) {
-        if (t < 0.08) { // 1. Pre-fault[cite: 2]
+        if (t < 0.10) { // 1. Pre-fault
           ampA_I = 1.0; ampB_I = 1.0; ampC_I = 1.0;
           ampA_U = 1.0; ampB_U = 1.0; ampC_U = 1.0;
-        } else if (t >= 0.08 && t < 0.18) { // 2. პირველი მოკლე შერთვა[cite: 2]
+        } else if (t >= 0.10 && t < 0.25) { // 2. პირველი მოკლე შერთვა
           ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
           ampA_U = 0.05; ampB_U = 0.05; ampC_U = 0.05;
-        } else if (t >= 0.18 && t < 0.42) { // 3. 1-ლი გათიშვა / აგჩ-ს 1-ლი პაუზა (0.80s)[cite: 2]
+        } else if (t >= 0.25 && t < 0.60) { // 3. 1-ლი გათიშვა / აგჩ-ს პაუზა (0.80s)
           ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
           ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
-        } else if (t >= 0.42 && t < 0.52) { // 4. 1-ლი აგჩ ჩართვა -> მყარი მოკლე შერთვა![cite: 2]
+        } else if (t >= 0.60 && t < 0.75) { // 4. 1-ლი აგჩ ჩართვა -> მყარი მოკლე შერთვა!
           ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
           ampA_U = 0.05; ampB_U = 0.05; ampC_U = 0.05;
-        } else if (t >= 0.52 && t < 0.78) { // 5. 2-რე გათიშვა / აგჩ-ს 2-რე პაუზა (1.50s)[cite: 2]
-          ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
-          ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
-        } else if (t >= 0.78 && t < 0.88) { // 6. 2-რე აგჩ ჩართვა -> ხელმეორე მყარი მ.შ.![cite: 2]
-          ampA_I = 3.2; ampB_I = 3.2; ampC_I = 3.2;
-          ampA_U = 0.05; ampB_U = 0.05; ampC_U = 0.05;
-        } else { // 7. საბოლოო გათიშვა (LOCKOUT)[cite: 2]
+        } else { // 5. საბოლოო გამორთვა (LOCKOUT)
           ampA_I = 0.0; ampB_I = 0.0; ampC_I = 0.0;
           ampA_U = 0.0; ampB_U = 0.0; ampC_U = 0.0;
         }
@@ -453,7 +443,6 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
       const valA_I = Math.sin(rad) * ampA_I;
       const valB_I = Math.sin(rad - (2 * Math.PI / 3)) * ampB_I;
       const valC_I = Math.sin(rad - (4 * Math.PI / 3)) * ampC_I;
-
       currentA.push(`${x},${100 - valA_I * 28}`);
       currentB.push(`${x},${100 - valB_I * 28}`);
       currentC.push(`${x},${100 - valC_I * 28}`);
@@ -461,7 +450,6 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
       const valA_U = Math.sin(rad) * ampA_U;
       const valB_U = Math.sin(rad - (2 * Math.PI / 3)) * ampB_U;
       const valC_U = Math.sin(rad - (4 * Math.PI / 3)) * ampC_U;
-
       voltageA.push(`${x},${100 - valA_U * 28}`);
       voltageB.push(`${x},${100 - valB_U * 28}`);
       voltageC.push(`${x},${100 - valC_U * 28}`);
@@ -469,12 +457,10 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
 
     if (isFailed3AR) {
       markers = [
-        { x: 0.08 * 600 * 1.5 * zoomLevel, text: '💥 მ.შ. (0.00s)', color: '#f38ba8' },
-        { x: 0.18 * 600 * 1.5 * zoomLevel, text: '🔴 1-ლი გათიშვა', color: '#f9e2af' },
-        { x: 0.42 * 600 * 1.5 * zoomLevel, text: '🔄 1-ლი აგჩ -> მყარი მ.შ.', color: '#f38ba8' },
-        { x: 0.52 * 600 * 1.5 * zoomLevel, text: '🔴 2-რე გათიშვა', color: '#f9e2af' },
-        { x: 0.78 * 600 * 1.5 * zoomLevel, text: '🔄 2-რე აგჩ -> მყარი მ.შ.', color: '#f38ba8' },
-        { x: 0.88 * 600 * 1.5 * zoomLevel, text: '🚫 LOCKOUT', color: '#f38ba8' }
+        { x: 0.10 * 600 * 1.5 * zoomLevel, text: '💥 მ.შ. (0.00s)', color: '#f38ba8' },
+        { x: 0.25 * 600 * 1.5 * zoomLevel, text: '🔴 1-ლი გათიშვა', color: '#f9e2af' },
+        { x: 0.60 * 600 * 1.5 * zoomLevel, text: '🔄 აგჩ -> მყარი მ.შ.', color: '#f38ba8' },
+        { x: 0.75 * 600 * 1.5 * zoomLevel, text: '🚫 LOCKOUT', color: '#f38ba8' }
       ];
     } else {
       markers = [
@@ -570,16 +556,14 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
               <svg viewBox={`0 0 ${900 * zoomLevel} 200`} className="w-full h-[180px] pointer-events-none">
                 <line x1="0" y1="100" x2={900 * zoomLevel} y2="100" stroke="#313244" strokeWidth="1" strokeDasharray="4 4" />
                 
-                {/* დროითი მარკერები აგჩ-ს ციკლებისთვის */}
+                {/* დროითი მარკერები */}
                 {arMarkers.map((m, idx) => (
                   <g key={idx}>
                     <line x1={m.x} y1="0" x2={m.x} y2="200" stroke={m.color} strokeWidth="1" strokeDasharray="3 3" />
                     <text x={m.x + 3} y={15 + (idx % 2) * 12} fill={m.color} fontSize="8px" fontFamily="monospace">{m.text}</text>
                   </g>
                 ))}
-
                 <text x="5" y="15" fill="#a6adc8" fontSize="8px" fontFamily="monospace">Pre-fault</text>
-
                 {showPhases.A && <polyline fill="none" stroke="#f38ba8" strokeWidth="2" points={currentWaves.pathA} />}
                 {showPhases.B && <polyline fill="none" stroke="#a6e3a1" strokeWidth="2" points={currentWaves.pathB} />}
                 {showPhases.C && <polyline fill="none" stroke="#89b4fa" strokeWidth="2" points={currentWaves.pathC} />}
@@ -619,9 +603,7 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
                 {arMarkers.map((m, idx) => (
                   <line key={idx} x1={m.x} y1="0" x2={m.x} y2="200" stroke={m.color} strokeWidth="1" strokeDasharray="3 3" />
                 ))}
-
                 <text x="5" y="15" fill="#a6adc8" fontSize="8px" fontFamily="monospace">Pre-fault</text>
-
                 {showVoltagePhases.A && <polyline fill="none" stroke="#f38ba8" strokeWidth="2" points={voltageWaves.pathA} />}
                 {showVoltagePhases.B && <polyline fill="none" stroke="#a6e3a1" strokeWidth="2" points={voltageWaves.pathB} />}
                 {showVoltagePhases.C && <polyline fill="none" stroke="#89b4fa" strokeWidth="2" points={voltageWaves.pathC} />}
@@ -691,7 +673,7 @@ export default function FaultAnalysisPage({ selectedFaultId = 'line_220_1ar_succ
                   <span className="text-[#a6e3a1] font-bold">{currentConfig.parameters.tripTime}</span>
                 </div>
                 <div className="bg-[#181825] p-2 rounded border border-[#222330]">
-                  <span className="text-[#a6adc8] block">🌀 ნულ. მიმდევრობის დენი ($3I_0$):</span>
+                  <span className="text-[#a6adc8] block">🌀 ნულ. მიმდევრობის დენი (3I0):</span>
                   <span className="text-[#cdd6f4] font-bold">{currentConfig.parameters.zeroSeqCurrent}</span>
                 </div>
                 <div className="bg-[#181825] p-2 rounded border border-[#222330] col-span-2">
